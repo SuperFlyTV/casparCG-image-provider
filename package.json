@@ -41,15 +41,16 @@
     "ci": "yarn test",
     "inspect": "node --inspect dist/index.js",
     "start": "node dist/index.js",
-    "unlinkall": "yarn unlink tv-automation-server-core-integration timeline-state-resolver && yarn --check-files",
-    "validate:dependencies": "yarn audit && yarn license-validate",
-    "license-validate": "node-license-validator -p -d --allow-licenses MIT BSD BSD-2-Clause BSD-3-Clause ISC Apache Unlicense WTFPL --allow-packages cycle",
-    "prepareChangelog": "standard-version --prerelease"
+    "watch-server": "nodemon src/index.ts"
   },
   "devDependencies": {
     "@types/jest": "^24.0.17",
+    "@types/koa": "^2.11.0",
+    "@types/koa-bodyparser": "^4.3.0",
+    "@types/koa-router": "^7.0.42",
+    "@types/sharp": "^0.23.1",
     "@types/node": "^8.0.4",
-    "@types/underscore": "^1.9.2",
+    "@types/underscore": "^1.9.4",
     "@types/winston": "^2.3.9",
     "codecov": "3.5.0",
     "gh-pages": "^2.1.1",
@@ -80,6 +81,11 @@
     "caspar-cg"
   ],
   "dependencies": {
-
+    "casparcg-connection": "^4.9.0",
+    "koa": "^2.11.0",
+    "koa-bodyparser": "^4.2.1",
+    "koa-router": "^7.4.0",
+    "sharp": "^0.23.3",
+    "underscore": "^1.9.1"
   }
 }
