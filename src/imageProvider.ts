@@ -58,6 +58,10 @@ export class ImageProvider {
 		// test accessibility:
 		fsAccess(this.mediaPath)
 
+		// Reset casparCG channels on startup:
+		_.each(config.channels, channel => {
+			this.casparcg.clear(channel.channel)
+		})
 	}
 
 	async getImage (channel: number, layer?: number) {
@@ -69,7 +73,7 @@ export class ImageProvider {
 		const snapshot = await this.fetchSnapshot(route)
 
 		await this.waitForFile(snapshot.filePath)
-		await this.wait(100) // wait a bit more for the write to finish
+		await this.wait(500) // wait a bit more for the write to finish
 
 		const buf = await fsReadFile(snapshot.filePath)
 

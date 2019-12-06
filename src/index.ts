@@ -8,6 +8,8 @@ import * as sharp from 'sharp'
 import { Readable } from 'stream'
 // const s = new Readable()
 
+const PORT = 3020
+
 console.log('*******************************************')
 console.log('CasparCG Image Provider')
 console.log('*******************************************')
@@ -31,7 +33,8 @@ imageProvider.init()
 	}))
 	router.get('/', async (ctx) => {
 		ctx.body = `Enpoints:
-	/channel/:channel/image`
+/channel/:channel/image
+/layer/:channel/:layer/image`
 	})
 	router.get('/channel/:channel/view', async (ctx) => {
 		// ctx.type = 'text/plain; charset=utf-8'
@@ -80,7 +83,7 @@ imageProvider.init()
 				ctx.body = ctx.req.pipe(stream)
 			} else {
 				ctx.type = 'text/plain; charset=utf-8'
-				ctx.body = 'Unable to return data'
+				ctx.body = 'Unable to return channel image'
 			}
 		} catch (e) {
 			console.log('Error yo')
@@ -89,12 +92,26 @@ imageProvider.init()
 		}
 	})
 	router.get('/layer/:channel/:layer/image', async (ctx) => {
-		ctx.body = `channel ${ctx.params.channel}, layer: ${ctx.params.layer}`
+		try {
+			const stream = await imageProvider.getImage(ctx.params.channel, ctx.params.layer)
+
+			if (stream) {
+				ctx.type = 'image/png'
+				ctx.body = ctx.req.pipe(stream)
+			} else {
+				ctx.type = 'text/plain; charset=utf-8'
+				ctx.body = 'Unable to return layer image'
+			}
+		} catch (e) {
+			console.log('Error yo')
+			console.log(e.stack)
+			throw e
+		}
 	})
 	app.use(router.routes())
-	app.listen(3020)
+	app.listen(PORT)
 })
 .then(() => {
-	console.log('Startup done, listening...')
+	console.log(`Startup done, listening on http://localhost:${PORT}`)
 })
 .catch(console.error)

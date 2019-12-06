@@ -36,7 +36,7 @@ export const config: IConfig = {
 
 	channels: [
 		{
-			channel: 2,
+			channel: 3,
 			resolution: 2,
 			width: 1280,
 			height: 720
