@@ -152,8 +152,8 @@ export class ImageProvider {
 			let i: number = 0
 			for (let x = 0; x < channel.resolution; x++) {
 				for (let y = 0; y < channel.resolution; y++) {
-					const width = channel.width / channel.resolution
-					const height = channel.height / channel.resolution
+					const width = Math.floor(channel.width / channel.resolution)
+					const height = Math.floor(channel.height / channel.resolution)
 					i++
 
 					const region: Region = {
