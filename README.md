@@ -7,5 +7,6 @@ Using a channel for snapshotting
 ## Development
 ```
 yarn
+yarg global add nodemon ts-node
 yarn watch-server
 ```

@@ -31,7 +31,7 @@ export const config: IConfig = {
 	port: 5250,
 	mediaFolderName: 'snaps',
 
-	snapshotTimeout: 100,
+	snapshotTimeout: 300,
 	maxFileCount: 100,
 
 	channels: [

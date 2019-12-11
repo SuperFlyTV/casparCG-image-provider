@@ -10,6 +10,7 @@ const fsAccess = util.promisify(fs.access)
 const fsExists = util.promisify(fs.exists)
 const fsUnlink = util.promisify(fs.unlink)
 const fsReadFile = util.promisify(fs.readFile)
+const fsStat = util.promisify(fs.stat)
 
 const ticCache = {}
 export function tic (name: string = 'default') {
@@ -40,7 +41,7 @@ export class ImageProvider {
 	mediaPath: string
 	private _takenRegions: {[regionId: string]: true} = {}
 	private _regionRoutes: {[routeId: string]: RegionRoute} = {}
-	private _snapshots: {[channel: string]: Promise<Snapshot>} = {}
+	private _snapshots: {[channel: string]: Snapshot} = {}
 	private _fileIterator: number = 0
 
 	constructor () {
@@ -56,28 +57,27 @@ export class ImageProvider {
 
 		console.log(`CasparCG media path: "${this.mediaPath}"`)
 		// test accessibility:
-		fsAccess(this.mediaPath)
+		await fsAccess(this.mediaPath)
 
 		// Reset casparCG channels on startup:
-		_.each(config.channels, channel => {
-			this.casparcg.clear(channel.channel)
-		})
+		await Promise.all(
+			_.map(config.channels, channel => {
+				return this.casparcg.clear(channel.channel)
+			})
+		)
 	}
 
 	async getImage (channel: number, layer?: number) {
-
 		const route = await this.getRegionRoute(channel, layer)
 
 		if (!route) return null
 
-		const snapshot = await this.fetchSnapshot(route)
+		const snapshotData = await this.fetchSnapshotData(route)
 
-		await this.waitForFile(snapshot.filePath)
-		await this.wait(500) // wait a bit more for the write to finish
+		// await this.waitForFile(snapshot.filePath)
+		// await this.wait(500) // wait a bit more for the write to finish
 
-		const buf = await fsReadFile(snapshot.filePath)
-
-		const image = await sharp(buf)
+		const image = sharp(snapshotData)
 			.extract({
 				left: route.region.x,
 				top: route.region.y,
@@ -179,15 +179,15 @@ export class ImageProvider {
 		if (layer) return `l_${channel}_${layer}`
 		return `c_${channel}`
 	}
-	private async fetchSnapshot (route: RegionRoute): Promise<Snapshot> {
-
+	private async fetchSnapshotData (route: RegionRoute): Promise<Buffer> {
 		const channelId = route.region.channel + ''
 		// First, check if we have a not-too-old stored snapshot of it?
-		const snapshot = await this._snapshots[channelId]
+		const snapshot = this._snapshots[channelId]
 		if (snapshot) {
 
 			if (snapshot.timestamp + config.snapshotTimeout > Date.now()) {
-				return snapshot
+				let data = await snapshot.data
+				return data
 			} else {
 				// the snapshot is too old
 
@@ -195,47 +195,68 @@ export class ImageProvider {
 				// todo: remove snapshot on disk?
 			}
 		}
-		this._snapshots[channelId] = (async (): Promise<Snapshot> => {
-			// Renew snapshot:
-			const i = this._fileIterator++
-			if (this._fileIterator > config.maxFileCount) {
-				this._fileIterator = 0
-			}
-			const filename = `snap_${i}`
-			const timestamp = Date.now()
 
-			const localFilePath = path.join(config.mediaFolderName || '', filename)
-			const filePath = path.join(this.mediaPath, localFilePath + '.png')
+		// Renew snapshot:
+		const i = this._fileIterator++
+		if (this._fileIterator > config.maxFileCount) {
+			this._fileIterator = 0
+		}
+		const filename = `snap_${i}`
+		const timestamp = Date.now()
 
-			if (await fsExists(filePath)) {
-				// remove it first
-				await fsUnlink(filePath)
-			}
+		const localFilePath = path.join(config.mediaFolderName || '', filename)
+		const filePath = path.join(this.mediaPath, localFilePath + '.png')
 
-			await this.casparCGPrint(route.region.channel, localFilePath.replace(/\\/g, '/'))
+		this._snapshots[channelId] = {
+			timestamp: timestamp,
+			filePath: filePath,
+			data: (async (filePath: string): Promise<Buffer> => {
 
-			await this.waitForFile(filePath)
-			// todo: maybe wait until file appears here?
+				if (await fsExists(filePath)) {
+					// remove it first
+					await fsUnlink(filePath)
+				}
+				await this.casparCGPrint(route.region.channel, localFilePath.replace(/\\/g, '/'))
 
-			return {
-				timestamp: timestamp,
-				filePath: filePath
-			}
-		})()
-		return this._snapshots[channelId]
+				await this.waitForFile(filePath)
+				// todo: maybe wait until file appears here?
+
+				// await this.wait(500) // wait a bit more for the write to finish
+
+				const fileData = await fsReadFile(filePath)
+
+				return fileData
+			})(filePath)
+		}
+
+		const data = await this._snapshots[channelId].data
+		return data
 	}
 	private async waitForFile (filePath: string) {
-		for (let i = 0; i < 10; i++) {
+		// const startTime = Date.now()
+		for (let i = 0; i < 30; i++) {
 			if (await fsExists(filePath)) break
-			await this.wait(100)
+			await this.wait(50)
 		}
+		// console.log('File appeared after', Date.now() - startTime)
+		// At this point, we've estabilshed that the file exists.
+		// Now, let's wait until the file size stops growing
+		let fileSize = 0
+		for (let i = 0; i < 30; i++) {
+			const stat = await fsStat(filePath)
+			if (stat.size !== fileSize) {
+				fileSize = stat.size
+				await this.wait(50)
+			} else break
+		}
+		// console.log('File stopped growing after', Date.now() - startTime)
 	}
 
 	private wait (time: number) {
 		return new Promise(resolve => setTimeout(resolve, time))
 	}
-	private casparCGPrint (channel: number, fileName: string) {
-		this.casparcg.do(
+	private async casparCGPrint (channel: number, fileName: string) {
+		await this.casparcg.do(
 			new AMCP.CustomCommand({
 				channel: channel,
 				command: (
@@ -244,13 +265,13 @@ export class ImageProvider {
 			})
 		)
 	}
-	private casparCGRoute (
+	private async casparCGRoute (
 		channel: number,
 		layer: number,
 		routeChannel: number,
 		routeLayer?: number
 	) {
-		this.casparcg.do(
+		await this.casparcg.do(
 			new AMCP.CustomCommand({
 				channel: channel,
 				command: (
@@ -280,4 +301,5 @@ interface RegionRoute {
 interface Snapshot {
 	timestamp: number
 	filePath: string
+	data: Promise<Buffer>
 }
