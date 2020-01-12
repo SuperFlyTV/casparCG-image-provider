@@ -1,9 +1,12 @@
 
 export interface IConfig {
+	/** This server's port  */
+	port: number
+
 	/** CasparCG host */
-	host: string
+	casparHost: string
 	/** CasparCG port */
-	port?: number
+	casparPort?: number
 	/** Which channels to use for snapshotting */
 	channels: ChannelSetup[]
 
@@ -27,8 +30,9 @@ export interface ChannelSetup {
 }
 
 export const config: IConfig = {
-	host: '127.0.0.1',
-	port: 5250,
+	port: 3020,
+	casparHost: '127.0.0.1',
+	casparPort: 5250,
 	mediaFolderName: 'snaps',
 
 	snapshotTimeout: 300,

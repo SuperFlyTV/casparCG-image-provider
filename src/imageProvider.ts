@@ -1,10 +1,13 @@
+import * as Koa from 'koa'
+import * as Router from 'koa-router'
 import { config, ChannelSetup } from './config'
-import { CasparCG, AMCP } from 'casparcg-connection'
+import { CasparCG, AMCP, CasparCGSocketStatusEvent } from 'casparcg-connection'
 import * as fs from 'fs'
 import * as util from 'util'
 import * as _ from 'underscore'
 import * as path from 'path'
 import sharp = require('sharp')
+import { ServerResponse } from 'http'
 
 const fsAccess = util.promisify(fs.access)
 const fsExists = util.promisify(fs.exists)
@@ -35,6 +38,9 @@ export function toc (name: string = 'default', logStr?: string) {
 	}
 }
 
+const clientLimit = 4
+const startExp = /(Content-type: image\/jpeg\r\nContent-length: (\d+)\r\n\r\n).*/
+
 export class ImageProvider {
 	casparcg: CasparCG
 
@@ -44,8 +50,22 @@ export class ImageProvider {
 	private _snapshots: {[channel: string]: Snapshot} = {}
 	private _fileIterator: number = 0
 
+	// Streams:
+	private casparStreams: {[streamId: string]: CasparStream} = {}
+	private latest: Buffer = Buffer.alloc(0)
+	private building: Buffer = Buffer.alloc(0)
+	private streams: Array<{ r: ServerResponse, drained: boolean }> = []
+	private frameCounter = 0
+
 	constructor () {
-		this.casparcg = new CasparCG(config.host, config.port)
+		console.log(`Connecting to CasparCG at ${config.casparHost}, port ${config.casparPort}...`)
+		this.casparcg = new CasparCG(config.casparHost, config.casparPort)
+		this.casparcg.on(CasparCGSocketStatusEvent.CONNECTED, () => {
+			console.log('CasparCG connected!')
+		})
+		this.casparcg.on(CasparCGSocketStatusEvent.DISCONNECTED, () => {
+			console.log('CasparCG disconnected!')
+		})
 	}
 
 	async init () {
@@ -88,7 +108,147 @@ export class ImageProvider {
 
 		return image
 	}
+	async initStream (channel: number, layer?: number): Promise<StreamInfo> {
+		const route = await this.getRegionRoute(channel, layer)
+		if (route) {
+			const streamId = 'stream' + route.region.channel
+			await this.setupStream(streamId)
+		}
 
+		return this.getStreamInfo()
+	}
+	getStreamInfo (): StreamInfo {
+		const streamInfo: StreamInfo = {
+			regions: [],
+			streams: []
+		}
+		const streams: {[streamId: string]: StreamInfoStream} = {}
+
+		_.each(this._regionRoutes, (route: RegionRoute) => {
+
+			const streamId = 'stream' + route.region.channel
+			const region: StreamInfoRegion = {
+				channel: route.channel,
+				layer: route.layer,
+
+				streamId: streamId,
+
+				x: route.region.x,
+				y: route.region.y,
+				width: route.region.width,
+				height: route.region.height
+			}
+			streamInfo.regions.push(region)
+
+			if (!streams[region.streamId]) {
+				streams[region.streamId] = {
+					id: region.streamId,
+
+					url: `/stream/${region.streamId}`,
+
+					channel: route.region.channel,
+					layer: route.region.layer,
+					width: route.region.originalWidth,
+					height: route.region.originalHeight
+				}
+			}
+		})
+		streamInfo.streams = _.values(streams)
+		return streamInfo
+	}
+	async setupStream (streamId: string) {
+		// Setup the caspar stream if not set:
+		const streamInfo = this.getStreamInfo()
+		const myStream = _.find(streamInfo.streams, stream => stream.id === streamId)
+		if (!myStream) return
+
+		if (!this.casparStreams[streamId]) {
+			console.log('Setting up new Caspar-stream')
+			this.casparStreams[streamId] = {
+				created: Date.now(),
+				lastReceivedTime: 0
+			}
+
+			await this.casparcg.do(
+				new AMCP.CustomCommand({
+					channel: myStream.channel,
+					command: (
+						`ADD ${myStream.channel}-998 STREAM http://127.0.0.1:${config.port}/feed/${myStream.id} -f mpjpeg -multiple_requests 1`
+					)
+				})
+			)
+		}
+		//
+	}
+	/** Send a stream of mjpegs to the client */
+	async setupClientStream (streamId: string, ctx: Koa.ParameterizedContext<Koa.DefaultState, Koa.DefaultContext>) {
+		if (this.streams.length >= clientLimit) {
+			ctx.status = 429
+			ctx.body = 'Maximum number of streams exceeded.'
+			return
+		}
+
+		await this.setupStream(streamId)
+
+		let stream = { r: ctx.res, drained: true }
+		this.streams.push(stream)
+		ctx.res.on('drain', () => { stream.drained = true })
+		console.log(`Streaming client connected. ${this.streams.length} streams now active.`)
+		ctx.res.on('error', err => { console.error(`Error for stream at index ${this.streams.indexOf(stream)}: ${err.message}`) })
+		ctx.res.on('close', () => {
+			this.streams = this.streams.filter(s => s !== stream)
+			console.log(`Client closed. ${this.streams.length} streams active.`)
+		})
+		ctx.type = 'multipart/x-mixed-replace; boundary=--jpgboundary'
+		ctx.status = 200
+		return new Promise(_resolve => {
+			// A promise that never resolves
+		})
+	}
+	/** Receive the stream of mjpegs from CasparCG */
+	feedStream (streamId: string, ctx: Koa.ParameterizedContext<Koa.DefaultState, Koa.DefaultContext>) {
+		console.log('feedStream ' + streamId)
+		ctx.req.on('data', (d: Buffer) => {
+			// console.log('feedStream data ' + streamId)
+			// console.log(d.length, d.slice(0, 100).toString('utf8'))
+			let match = startExp.exec(d.slice(0, 60).toString('utf8'))
+			// console.log(match, d.slice(0, 60).toString('utf8'))
+			if (d.length === 10 && d.toString('utf8') === '--ffmpeg\r\n') {
+				return
+			}
+			if (match) {
+				this.latest = this.building.length > 12 && this.building[0] === 0xff && this.building[1] === 0xd8 ? Buffer.from(this.building.slice(0, -12)) : this.latest
+				this.frameCounter++
+				Promise.all(
+					this.streams.map(
+						(s, index) => new Promise((resolve: (b: boolean) => void, _reject) => {
+							// console.log('<<<', index, s.drained)
+							if (!s.drained) {
+								console.log(`Dropping stream ${index} frame ${this.frameCounter}`)
+								return resolve(s.drained)
+							}
+							s.r.write('--jpgboundary\r\n')
+							s.r.write('Content-type: image/jpeg\r\n')
+							s.r.write(`Content-length: ${this.latest.length}\r\n\r\n`)
+							s.drained = s.r.write(this.latest)
+							// console.log('>>>', index, s.drained)
+							resolve(s.drained)
+						}).catch(err => { console.error(`Failed to send JPEG to stream ${index}: ${err.message}`) })
+					)
+				)
+
+				if (+match[2] !== 11532) {
+					this.building = d.slice(Buffer.byteLength(match[1], 'utf8'))
+				} else {
+					this.building = Buffer.alloc(0)
+				}
+			} else {
+				// console.log('In here', building.slice(-30), d.slice(-30))
+				this.building = Buffer.concat([this.building, d])
+			}
+		})
+		ctx.body = `Received frame part ${this.frameCounter}`
+	}
 	private async getRegionRoute (channel: number, layer?: number): Promise<RegionRoute | undefined> {
 		const id = this.getRouteId(channel, layer)
 
@@ -302,4 +462,35 @@ interface Snapshot {
 	timestamp: number
 	filePath: string
 	data: Promise<Buffer>
+}
+export interface StreamInfo {
+	regions: StreamInfoRegion[]
+	streams: StreamInfoStream[]
+}
+/**  */
+export interface StreamInfoRegion {
+	channel: number
+	layer?: number
+
+	streamId: string
+
+	x: number
+	y: number
+	width: number
+	height: number
+}
+export interface StreamInfoStream {
+	id: string
+
+	url: string
+
+	channel: number
+	layer: number
+
+	width: number
+	height: number
+}
+export interface CasparStream {
+	created: number
+	lastReceivedTime: number
 }
