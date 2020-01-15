@@ -1,13 +1,16 @@
 import * as Koa from 'koa'
-import * as Router from 'koa-router'
-import { config, ChannelSetup } from './config'
-import { CasparCG, AMCP, CasparCGSocketStatusEvent } from 'casparcg-connection'
-import * as fs from 'fs'
-import * as util from 'util'
 import * as _ from 'underscore'
+import * as fs from 'fs'
 import * as path from 'path'
-import sharp = require('sharp')
+import * as util from 'util'
+
+import { AMCP, CasparCG, CasparCGSocketStatusEvent } from 'casparcg-connection'
+import { ChannelSetup, config } from './config'
+
 import { ServerResponse } from 'http'
+
+import sharp = require('sharp')
+
 
 const fsAccess = util.promisify(fs.access)
 const fsExists = util.promisify(fs.exists)
