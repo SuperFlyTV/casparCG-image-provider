@@ -1,7 +1,7 @@
 import * as Koa from 'koa'
 import * as Router from 'koa-router'
 import * as bodyParser from 'koa-bodyparser'
-import * as serve from 'koa-static'
+
 import { ImageProvider } from './imageProvider'
 import { config } from './config'
 
