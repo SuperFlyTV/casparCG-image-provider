@@ -41,15 +41,16 @@
     "ci": "yarn test",
     "inspect": "node --inspect dist/index.js",
     "start": "node dist/index.js",
-    "watch-server": "nodemon src/index.ts"
+    "watch-server": "nodemon src/index.ts",
+    "pkg-win32": "yarn build && pkg -t node12-win dist/index.js -o dist/casparcg-image-provider.exe"
   },
   "devDependencies": {
     "@types/jest": "^24.0.17",
     "@types/koa": "^2.11.0",
     "@types/koa-bodyparser": "^4.3.0",
     "@types/koa-router": "^7.0.42",
-    "@types/sharp": "^0.23.1",
     "@types/node": "^8.0.4",
+    "@types/sharp": "^0.23.1",
     "@types/underscore": "^1.9.4",
     "@types/winston": "^2.3.9",
     "codecov": "3.5.0",
@@ -85,6 +86,7 @@
     "koa": "^2.11.0",
     "koa-bodyparser": "^4.2.1",
     "koa-router": "^7.4.0",
+    "pkg": "^4.4.2",
     "sharp": "^0.23.3",
     "underscore": "^1.9.1"
   }
