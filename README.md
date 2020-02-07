@@ -14,9 +14,15 @@ yarn
 yarn watch-server
 ```
 
+### Packaging
+
+To pack into a single executable, run:
+
+Windows: `yarn pkg-win32`
+
 ### Ref implementation
 
 Reference implementations for client-side can be accessed at
 
-* http://localhost:3020/channel/1/view-stream
-* http://localhost:3020/channel/1/view-image
+* http://localhost:5255/channel/1/view-stream
+* http://localhost:5255/channel/1/view-image
