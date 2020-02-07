@@ -30,7 +30,7 @@ export interface ChannelSetup {
 }
 
 export const config: IConfig = {
-	port: 3020,
+	port: 5255,
 	casparHost: '127.0.0.1',
 	casparPort: 5250,
 	mediaFolderName: 'snaps',
