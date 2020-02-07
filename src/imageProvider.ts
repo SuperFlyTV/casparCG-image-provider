@@ -52,6 +52,7 @@ export class ImageProvider {
 	private _regionRoutes: {[routeId: string]: RegionRoute} = {}
 	private _snapshots: {[channel: string]: Snapshot} = {}
 	private _fileIterator: number = 0
+	private channelSetup: ChannelSetup[] = []
 
 	// Streams:
 	private casparStreams: {[streamId: string]: CasparStream} = {}
@@ -82,9 +83,36 @@ export class ImageProvider {
 		// test accessibility:
 		await fsAccess(this.mediaPath)
 
+		if (config.channels) {
+			this.channelSetup = config.channels
+		} else {
+			// Default: Use last channel in CasparCG:
+			const lastCasparChannelNumber = casparConfig.response.data.channels.length
+
+			if (lastCasparChannelNumber > 1) {
+				console.log(`Using CasparCG channel ${lastCasparChannelNumber} for streaming content.`)
+				const casparChannel = casparConfig.response.data.channels[lastCasparChannelNumber - 1]
+				if (!casparChannel) throw new Error(`Internal error: casparChannel`)
+				let size = { width: 0, height: 0 }
+				if (casparChannel.videoMode.match(/^720/)) size = { width: 1280, height: 720 }
+				else if (casparChannel.videoMode.match(/^1080/)) size = { width: 1920, height: 2080 }
+				else if (casparChannel.videoMode.match(/^1556/)) size = { width: 2048, height: 1556 }
+
+				this.channelSetup = [{
+					channel: lastCasparChannelNumber,
+					resolution: Math.max(2, Math.ceil(Math.sqrt((lastCasparChannelNumber - 1) * 4))), // estimate how many
+					width: size.width,
+					height: size.height
+				}]
+
+			} else {
+				throw new Error('This application uses the last channel in CasparCG for streaming, please add another channel in the CasparCG-config.')
+			}
+		}
+
 		// Reset casparCG channels on startup:
 		await Promise.all(
-			_.map(config.channels, channel => {
+			_.map(this.channelSetup, channel => {
 				return this.casparcg.clear(channel.channel)
 			})
 		)
@@ -311,7 +339,7 @@ export class ImageProvider {
 	private getAvailableRegions (): Region[] {
 		const regions: Region[] = []
 
-		_.each(config.channels, (channel: ChannelSetup) => {
+		_.each(this.channelSetup, (channel: ChannelSetup) => {
 			let i: number = 0
 			for (let x = 0; x < channel.resolution; x++) {
 				for (let y = 0; y < channel.resolution; y++) {
