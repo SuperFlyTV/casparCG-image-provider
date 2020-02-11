@@ -4,6 +4,7 @@ import * as bodyParser from 'koa-bodyparser'
 
 import { ImageProvider } from './imageProvider'
 import { config } from './config'
+import * as _ from 'underscore'
 
 console.log('*******************************************')
 console.log('CasparCG Image Provider')
@@ -28,11 +29,28 @@ imageProvider.init()
 		}
 	}))
 	router.get('/', async (ctx) => {
-		ctx.body = `Enpoints:
-/channel/:channel/image
-/layer/:channel/:layer/image`
+		ctx.body = `<html><body><h1>Endpoints:</h1>
+<ul>
+<li><a href="/info">/info</a></li>
+<li><a href="/channel/:channel/view-stream">/channel/:channel/view-stream</a></li>
+<li><a href="/stream/:streamId">/stream/:streamId</a></li>
+<li><a href="/channel/:channel/stream">/channel/:channel/stream</a></li>
+<li><a href="/channel/:channel/:layer/stream">/channel/:channel/:layer/stream</a></li>
+</ul>
+<h3>To-be deprecated:</h3>
+<ul>
+<li><a href="/channel/:channel/view-image">/channel/:channel/view-image</a></li>
+<li><a href="/channel/:channel/image">/channel/:channel/image</a></li>
+<li><a href="/channel/:channel/:layer/image">/channel/:channel/:layer/image</a></li>
+<ul>
+</body></html>
+`
 	})
 	router.get('/channel/:channel/view-image', async (ctx) => {
+		if (_.isNaN(Number(ctx.params.channel))) {
+			ctx.body = `/:channel/view-image`
+			return
+		}
 		// ctx.type = 'text/plain; charset=utf-8'
 		ctx.body = `
 	<html>
@@ -203,6 +221,18 @@ imageProvider.init()
 		// Receive a stream of mjpegs from CasparCG
 		try {
 			await imageProvider.feedStream(ctx.params.streamId, ctx)
+		} catch (e) {
+			console.log('Error yo')
+			console.log(e.stack)
+			throw e
+		}
+	})
+	router.get('/info', async (ctx) => {
+		// Info about streams
+		try {
+			const streamInfo = imageProvider.getStreamInfo()
+			ctx.type = 'application/json; charset=utf-8'
+			ctx.body = JSON.stringify(streamInfo)
 		} catch (e) {
 			console.log('Error yo')
 			console.log(e.stack)
