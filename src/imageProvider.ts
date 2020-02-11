@@ -11,7 +11,6 @@ import { ServerResponse } from 'http'
 
 import sharp = require('sharp')
 
-
 const fsAccess = util.promisify(fs.access)
 const fsExists = util.promisify(fs.exists)
 const fsUnlink = util.promisify(fs.unlink)
@@ -58,17 +57,24 @@ export class ImageProvider {
 	private casparStreams: {[streamId: string]: CasparStream} = {}
 	private latest: Buffer = Buffer.alloc(0)
 	private building: Buffer = Buffer.alloc(0)
-	private streams: Array<{ r: ServerResponse, drained: boolean }> = []
+	private streamReceivers: Array<{ r: ServerResponse, drained: boolean }> = []
 	private frameCounter = 0
+
+	private wasDisconnected: boolean = false
 
 	constructor () {
 		console.log(`Connecting to CasparCG at ${config.casparHost}, port ${config.casparPort}...`)
 		this.casparcg = new CasparCG(config.casparHost, config.casparPort)
 		this.casparcg.on(CasparCGSocketStatusEvent.CONNECTED, () => {
 			console.log('CasparCG connected!')
+			if (this.wasDisconnected) {
+				this.wasDisconnected = false
+				this.reset()
+			}
 		})
 		this.casparcg.on(CasparCGSocketStatusEvent.DISCONNECTED, () => {
 			console.log('CasparCG disconnected!')
+			this.wasDisconnected = true
 		})
 	}
 
@@ -116,6 +122,14 @@ export class ImageProvider {
 				return this.casparcg.clear(channel.channel)
 			})
 		)
+	}
+	reset () {
+		console.log('Resetting all streams')
+		this._regionRoutes = {}
+		this.casparStreams = {}
+		// this.streamReceivers = {}
+
+		// Perhaps also clear caspar-layer ${myStream.channel}-998 here?
 	}
 
 	async getImage (channel: number, layer?: number) {
@@ -213,7 +227,7 @@ export class ImageProvider {
 	}
 	/** Send a stream of mjpegs to the client */
 	async setupClientStream (streamId: string, ctx: Koa.ParameterizedContext<Koa.DefaultState, Koa.DefaultContext>) {
-		if (this.streams.length >= clientLimit) {
+		if (this.streamReceivers.length >= clientLimit) {
 			ctx.status = 429
 			ctx.body = 'Maximum number of streams exceeded.'
 			return
@@ -222,13 +236,13 @@ export class ImageProvider {
 		await this.setupStream(streamId)
 
 		let stream = { r: ctx.res, drained: true }
-		this.streams.push(stream)
+		this.streamReceivers.push(stream)
 		ctx.res.on('drain', () => { stream.drained = true })
-		console.log(`Streaming client connected. ${this.streams.length} streams now active.`)
-		ctx.res.on('error', err => { console.error(`Error for stream at index ${this.streams.indexOf(stream)}: ${err.message}`) })
+		console.log(`Streaming client connected. ${this.streamReceivers.length} streams now active.`)
+		ctx.res.on('error', err => { console.error(`Error for stream at index ${this.streamReceivers.indexOf(stream)}: ${err.message}`) })
 		ctx.res.on('close', () => {
-			this.streams = this.streams.filter(s => s !== stream)
-			console.log(`Client closed. ${this.streams.length} streams active.`)
+			this.streamReceivers = this.streamReceivers.filter(s => s !== stream)
+			console.log(`Client closed. ${this.streamReceivers.length} streams active.`)
 		})
 		ctx.type = 'multipart/x-mixed-replace; boundary=--jpgboundary'
 		ctx.status = 200
@@ -238,7 +252,7 @@ export class ImageProvider {
 	}
 	/** Receive the stream of mjpegs from CasparCG */
 	feedStream (streamId: string, ctx: Koa.ParameterizedContext<Koa.DefaultState, Koa.DefaultContext>) {
-		console.log('feedStream ' + streamId)
+		console.log(`Receiving stream ${streamId} started`)
 		ctx.req.on('data', (d: Buffer) => {
 			// console.log('feedStream data ' + streamId)
 			// console.log(d.length, d.slice(0, 100).toString('utf8'))
@@ -251,7 +265,7 @@ export class ImageProvider {
 				this.latest = this.building.length > 12 && this.building[0] === 0xff && this.building[1] === 0xd8 ? Buffer.from(this.building.slice(0, -12)) : this.latest
 				this.frameCounter++
 				Promise.all(
-					this.streams.map(
+					this.streamReceivers.map(
 						(s, index) => new Promise((resolve: (b: boolean) => void, _reject) => {
 							// console.log('<<<', index, s.drained)
 							if (!s.drained) {
@@ -277,6 +291,12 @@ export class ImageProvider {
 				// console.log('In here', building.slice(-30), d.slice(-30))
 				this.building = Buffer.concat([this.building, d])
 			}
+		})
+		ctx.req.on('close', (d: Buffer) => {
+			console.log(`Receiving stream ${streamId} ended`)
+			this.latest = Buffer.alloc(0)
+			this.building = Buffer.alloc(0)
+			this.frameCounter = 0
 		})
 		ctx.body = `Received frame part ${this.frameCounter}`
 	}
