@@ -292,7 +292,7 @@ export class ImageProvider {
 				this.building = Buffer.concat([this.building, d])
 			}
 		})
-		ctx.req.on('close', (d: Buffer) => {
+		ctx.req.on('close', () => {
 			console.log(`Receiving stream ${streamId} ended`)
 			this.latest = Buffer.alloc(0)
 			this.building = Buffer.alloc(0)
