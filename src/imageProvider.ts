@@ -218,7 +218,7 @@ export class ImageProvider {
 				new AMCP.CustomCommand({
 					channel: myStream.channel,
 					command: (
-						`ADD ${myStream.channel}-998 STREAM http://127.0.0.1:${config.port}/feed/${myStream.id} -f mpjpeg -multiple_requests 1`
+						`ADD ${myStream.channel}-998 STREAM http://127.0.0.1:${config.port}/feed/${myStream.id} -f mpjpeg -multiple_requests 1 -qmin 2 -qmax 5`
 					)
 				})
 			)
