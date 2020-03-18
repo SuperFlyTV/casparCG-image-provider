@@ -101,7 +101,7 @@ export class ImageProvider {
 				if (!casparChannel) throw new Error(`Internal error: casparChannel`)
 				let size = { width: 0, height: 0 }
 				if (casparChannel.videoMode.match(/^720/)) size = { width: 1280, height: 720 }
-				else if (casparChannel.videoMode.match(/^1080/)) size = { width: 1920, height: 2080 }
+				else if (casparChannel.videoMode.match(/^1080/)) size = { width: 1920, height: 1080 }
 				else if (casparChannel.videoMode.match(/^1556/)) size = { width: 2048, height: 1556 }
 
 				this.channelSetup = [{
