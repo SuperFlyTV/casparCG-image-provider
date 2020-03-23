@@ -55,47 +55,6 @@ imageProvider.init()
 </body></html>
 `
 	})
-	router.get('/channel/:channel/view-image', async (ctx) => {
-		if (_.isNaN(Number(ctx.params.channel))) {
-			ctx.body = `/:channel/view-image`
-			return
-		}
-		// ctx.type = 'text/plain; charset=utf-8'
-		ctx.body = `
-	<html>
-	<body>
-	<img id="img">
-	<script>
-
-	  function arrayBufferToBase64(buffer) {
-		var binary = ''
-		var bytes = [].slice.call(new Uint8Array(buffer))
-
-		bytes.forEach((b) => binary += String.fromCharCode(b))
-
-		return window.btoa(binary)
-	  }
-
-	function updateImage () {
-		fetch("/channel/${ctx.params.channel}/image?hash=" + Date.now())
-		.then((response) => {
-			response.arrayBuffer().then((buffer) => {
-				var base64Flag = 'data:image/jpeg;base64,';
-				var imageStr = arrayBufferToBase64(buffer);
-
-				document.querySelector('img').src = base64Flag + imageStr;
-				setTimeout(updateImage, 10)
-			  });
-
-			// document.getElementById('img').src =
-		}, console.error)
-	}
-	// setInterval(updateImage, 100)
-	updateImage()
-	</script>
-	</body>
-	</html>`
-	})
 	router.get('/channel/:channel/view-stream', async (ctx) => {
 		const channel: number | undefined = ctx.params.channel === undefined ? undefined : Number(ctx.params.channel)
 		if (channel === undefined) { ctx.body = 'parameter :channel not provided'; return }
