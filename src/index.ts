@@ -97,7 +97,9 @@ imageProvider.init()
 	</html>`
 	})
 	router.get('/channel/:channel/view-stream', async (ctx) => {
-		// ctx.type = 'text/plain; charset=utf-8'
+		const channel: number | undefined = ctx.params.channel === undefined ? undefined : Number(ctx.params.channel)
+		if (channel === undefined) { ctx.body = 'parameter :channel not provided'; return }
+
 		ctx.body = `
 	<html>
 	<body>
@@ -151,7 +153,7 @@ imageProvider.init()
 
 		})
 	}
-	setupStream(document.getElementById("stream-container"), ${ctx.params.channel})
+	setupStream(document.getElementById("stream-container"), ${channel})
 	</script>
 	</body>
 	</html>`
@@ -197,7 +199,11 @@ imageProvider.init()
 	router.get('/channel/:channel/stream', async (ctx) => {
 		// Set up internal routes of the channel and return info about the resulting stream
 		try {
-			const streamInfo = await imageProvider.initStream(ctx.params.channel)
+			const channel: number | undefined = ctx.params.channel === undefined ? undefined : Number(ctx.params.channel)
+			if (channel === undefined) { ctx.body = 'parameter :channel not provided'; return }
+			if (isNaN(Number(channel))) { ctx.body = 'parameter :channel must be a number'; return }
+
+			const streamInfo = await imageProvider.initStream(channel)
 			ctx.type = 'application/json; charset=utf-8'
 			ctx.body = JSON.stringify(streamInfo)
 		} catch (e) {
@@ -209,7 +215,15 @@ imageProvider.init()
 	router.get('/channel/:channel/:layer/stream', async (ctx) => {
 		// Set up internal routes of the layer and return info about the resulting stream
 		try {
-			const streamInfo = await imageProvider.initStream(ctx.params.channel, ctx.params.layer)
+			const channel: number | undefined = ctx.params.channel === undefined ? undefined : Number(ctx.params.channel)
+			if (channel === undefined) { ctx.body = 'parameter :channel not provided'; return }
+			if (isNaN(Number(channel))) { ctx.body = 'parameter :channel must be a number'; return }
+
+			const layer: number | undefined = ctx.params.layer === undefined ? undefined : Number(ctx.params.layer)
+			if (layer === undefined) { ctx.body = 'parameter :layer not provided'; return }
+			if (isNaN(Number(layer))) { ctx.body = 'parameter :layer must be a number'; return }
+
+			const streamInfo = await imageProvider.initStream(channel, layer)
 			ctx.type = 'application/json; charset=utf-8'
 			ctx.body = JSON.stringify(streamInfo)
 		} catch (e) {
@@ -221,7 +235,10 @@ imageProvider.init()
 	router.get('/custom/:regionId', async (ctx) => {
 		// Instead of setting up routes, just use a layer in the grid and let the external system add content to it later
 		try {
-			const streamInfo = await imageProvider.initStream(ctx.params.regionId)
+			const regionId: string | undefined = ctx.params.regionId === undefined ? undefined : ctx.params.regionId
+			if (!regionId) { ctx.body = 'parameter :regionId not provided'; return }
+
+			const streamInfo = await imageProvider.initStream(regionId)
 			ctx.type = 'application/json; charset=utf-8'
 			ctx.body = JSON.stringify(streamInfo)
 		} catch (e) {
@@ -233,7 +250,13 @@ imageProvider.init()
 	router.get('/stream/:streamId', async (ctx) => {
 		// Return the stream to the client
 		try {
-			await imageProvider.setupClientStream(ctx.params.streamId, ctx)
+			const streamId: string | undefined = ctx.params.streamId === undefined ? undefined : ctx.params.streamId
+			if (!streamId) {
+				ctx.body = 'parameter :streamId not provided';
+				return
+			}
+
+			await imageProvider.setupClientStream(streamId, ctx)
 		} catch (e) {
 			console.log('Error yo')
 			console.log(e.stack)
@@ -243,7 +266,13 @@ imageProvider.init()
 	router.get('/image/:streamId', async (ctx) => {
 		// Return the an image to the client
 		try {
-			await imageProvider.setupClientStreamAndReturnImage(ctx.params.streamId, ctx)
+			const streamId: string | undefined = ctx.params.streamId === undefined ? undefined : ctx.params.streamId
+			if (!streamId) {
+				ctx.body = 'parameter :streamId not provided';
+				return
+			}
+
+			await imageProvider.setupClientStreamAndReturnImage(streamId, ctx)
 		} catch (e) {
 			console.log('Error yo')
 			console.log(e.stack)
@@ -253,7 +282,13 @@ imageProvider.init()
 	router.post('/feed/:streamId', async (ctx) => {
 		// Receive a stream of mjpegs from CasparCG
 		try {
-			imageProvider.feedStream(ctx.params.streamId, ctx)
+			const streamId: string | undefined = ctx.params.streamId === undefined ? undefined : ctx.params.streamId
+			if (!streamId) {
+				ctx.body = 'parameter :streamId not provided';
+				return
+			}
+
+			imageProvider.feedStream(streamId, ctx)
 		} catch (e) {
 			console.log('Error yo')
 			console.log(e.stack)

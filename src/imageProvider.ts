@@ -120,11 +120,11 @@ export class ImageProvider {
 	async initStream (channelOrId: number | string, layer?: number): Promise<StreamInfo> {
 		console.log('initStream', channelOrId, layer)
 		let region: Region | undefined = undefined
-		if (isNaN(Number(channelOrId))) {
-			const contentId = channelOrId + ''
+		if (typeof channelOrId === 'string') {
+			const contentId = channelOrId
 			region = await this.createNewRegion(contentId)
 		} else {
-			const channel = Number(channelOrId)
+			const channel = channelOrId
 			const route = await this.getRegionRoute(channel, layer)
 			if (route) region = route.region
 		}
