@@ -10,14 +10,12 @@ export interface IConfig {
 	/** Which channels to use for snapshotting. If omitted, the image-provider will use the last CasparCG-channel. */
 	channels?: ChannelSetup[]
 
-	/** Name of the folder inside of the media folder to use  */
-	mediaFolderName?: string
-
-	/** How long an existing file is allowed to be used */
-	snapshotTimeout: number
-
-	/** How many files to store on disk */
-	maxFileCount: number
+	stream?: {
+		/** Stream min quality (default: 2) */
+		qmin?: number
+		/** Stream max quality (default: 5) */
+		qmax?: number
+	}
 }
 export interface ChannelSetup {
 	/** CasparCG channel number (starting on 1) */
@@ -33,10 +31,11 @@ export const config: IConfig = {
 	port: 5255,
 	casparHost: '127.0.0.1',
 	casparPort: 5250,
-	mediaFolderName: 'snaps',
 
-	snapshotTimeout: 300,
-	maxFileCount: 100
+	stream: {
+		qmin: 2,
+		qmax: 5
+	}
 
 	// channels: [
 	// 	{

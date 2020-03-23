@@ -1,21 +1,10 @@
 import * as Koa from 'koa'
 import * as _ from 'underscore'
-import * as fs from 'fs'
-import * as path from 'path'
-import * as util from 'util'
 
 import { AMCP, CasparCG, CasparCGSocketStatusEvent } from 'casparcg-connection'
 import { ChannelSetup, config } from './config'
 
-import { ServerResponse } from 'http'
-
-import sharp = require('sharp')
-
-const fsAccess = util.promisify(fs.access)
-const fsExists = util.promisify(fs.exists)
-const fsUnlink = util.promisify(fs.unlink)
-const fsReadFile = util.promisify(fs.readFile)
-const fsStat = util.promisify(fs.stat)
+// import { ServerResponse } from 'http'
 
 const ticCache = {}
 export function tic (name: string = 'default') {
@@ -43,21 +32,24 @@ export function toc (name: string = 'default', logStr?: string) {
 const clientLimit = 4
 const startExp = /(Content-type: image\/jpeg\r\nContent-length: (\d+)\r\n\r\n).*/
 
+interface StreamReceiver {
+	ctx: Koa.ParameterizedContext<Koa.DefaultState, Koa.DefaultContext>
+	drained: boolean
+	singleImage?: boolean
+	resolve: () => void
+}
 export class ImageProvider {
 	casparcg: CasparCG
 
-	mediaPath: string
-	private _takenRegions: {[regionId: string]: true} = {}
-	private _regionRoutes: {[routeId: string]: RegionRoute} = {}
-	private _snapshots: {[channel: string]: Snapshot} = {}
-	private _fileIterator: number = 0
+	private _takenRegions: {[contentId: string]: true} = {}
+	private _regionContents: {[contentId: string]: RegionContent } = {}
 	private channelSetup: ChannelSetup[] = []
 
 	// Streams:
 	private casparStreams: {[streamId: string]: CasparStream} = {}
 	private latest: Buffer = Buffer.alloc(0)
 	private building: Buffer = Buffer.alloc(0)
-	private streamReceivers: Array<{ r: ServerResponse, drained: boolean }> = []
+	private streamReceivers: Array<StreamReceiver> = []
 	private frameCounter = 0
 
 	private wasDisconnected: boolean = false
@@ -81,13 +73,6 @@ export class ImageProvider {
 	async init () {
 
 		const casparConfig = await this.casparcg.infoConfig()
-
-		this.mediaPath = casparConfig.response.data.paths.mediaPath
-		if (!this.mediaPath) throw new Error('Unable to get media path from casparCG')
-
-		console.log(`CasparCG media path: "${this.mediaPath}"`)
-		// test accessibility:
-		await fsAccess(this.mediaPath)
 
 		if (config.channels) {
 			this.channelSetup = config.channels
@@ -125,38 +110,26 @@ export class ImageProvider {
 	}
 	reset () {
 		console.log('Resetting all streams')
-		this._regionRoutes = {}
+		this._regionContents = {}
 		this.casparStreams = {}
-		// this.streamReceivers = {}
 
 		// Perhaps also clear caspar-layer ${myStream.channel}-998 here?
 	}
-
-	async getImage (channel: number, layer?: number) {
-		const route = await this.getRegionRoute(channel, layer)
-
-		if (!route) return null
-
-		const snapshotData = await this.fetchSnapshotData(route)
-
-		// await this.waitForFile(snapshot.filePath)
-		// await this.wait(500) // wait a bit more for the write to finish
-
-		const image = sharp(snapshotData)
-			.extract({
-				left: route.region.x,
-				top: route.region.y,
-				width: route.region.width,
-				height: route.region.height
-			})
-			.png()
-
-		return image
-	}
-	async initStream (channel: number, layer?: number): Promise<StreamInfo> {
-		const route = await this.getRegionRoute(channel, layer)
-		if (route) {
-			const streamId = 'stream' + route.region.channel
+	async initStream (id: string): Promise<StreamInfo>
+	async initStream (channel: number, layer?: number): Promise<StreamInfo>
+	async initStream (channelOrId: number | string, layer?: number): Promise<StreamInfo> {
+		console.log('initStream', channelOrId, layer)
+		let region: Region | undefined = undefined
+		if (isNaN(Number(channelOrId))) {
+			const contentId = channelOrId + ''
+			region = await this.createNewRegion(contentId)
+		} else {
+			const channel = Number(channelOrId)
+			const route = await this.getRegionRoute(channel, layer)
+			if (route) region = route.region
+		}
+		if (region) {
+			const streamId = 'stream' + region.channel
 			await this.setupStream(streamId)
 		}
 
@@ -169,12 +142,18 @@ export class ImageProvider {
 		}
 		const streams: {[streamId: string]: StreamInfoStream} = {}
 
-		_.each(this._regionRoutes, (route: RegionRoute) => {
+		_.each(this._regionContents, (route: RegionContent) => {
 
 			const streamId = 'stream' + route.region.channel
 			const region: StreamInfoRegion = {
-				channel: route.channel,
-				layer: route.layer,
+				contentId: isRegionCustomContent(route) ? route.contentId : this.getcontentId(route.channel, route.layer),
+				channel: isRegionRoute(route) ? route.channel : undefined,
+				layer: isRegionRoute(route) ? route.layer : undefined,
+
+				region: {
+					channel: route.region.channel,
+					layer: route.region.layer
+				},
 
 				streamId: streamId,
 
@@ -214,11 +193,25 @@ export class ImageProvider {
 				lastReceivedTime: 0
 			}
 
+			const qmin = config.stream && config.stream.qmin || 2
+			const qmax = config.stream && config.stream.qmax || 5
+
+			const streamProducerId = 998
+
 			await this.casparcg.do(
 				new AMCP.CustomCommand({
 					channel: myStream.channel,
 					command: (
-						`ADD ${myStream.channel}-998 STREAM http://127.0.0.1:${config.port}/feed/${myStream.id} -f mpjpeg -multiple_requests 1 -qmin 2 -qmax 5`
+						`REMOVE ${myStream.channel}-${streamProducerId}`
+					)
+				})
+			)
+
+			await this.casparcg.do(
+				new AMCP.CustomCommand({
+					channel: myStream.channel,
+					command: (
+						`ADD ${myStream.channel}-${streamProducerId} STREAM http://127.0.0.1:${config.port}/feed/${myStream.id} -f mpjpeg -multiple_requests 1 -qmin ${qmin} -qmax ${qmax}`
 					)
 				})
 			)
@@ -235,23 +228,58 @@ export class ImageProvider {
 
 		await this.setupStream(streamId)
 
-		let stream = { r: ctx.res, drained: true }
-		this.streamReceivers.push(stream)
-		ctx.res.on('drain', () => { stream.drained = true })
-		console.log(`Streaming client connected. ${this.streamReceivers.length} streams now active.`)
-		ctx.res.on('error', err => { console.error(`Error for stream at index ${this.streamReceivers.indexOf(stream)}: ${err.message}`) })
-		ctx.res.on('close', () => {
-			this.streamReceivers = this.streamReceivers.filter(s => s !== stream)
-			console.log(`Client closed. ${this.streamReceivers.length} streams active.`)
+		return new Promise((resolve, reject) => {
+			let stream = { ctx: ctx, drained: true, resolve }
+			this.streamReceivers.push(stream)
+			ctx.res.on('drain', () => { stream.drained = true })
+			console.log(`Streaming client connected. ${this.streamReceivers.length} streams now active.`)
+			ctx.res.on('error', err => {
+				console.error(`Error for stream at index ${this.streamReceivers.indexOf(stream)}: ${err.message}`)
+				this.streamReceivers = this.streamReceivers.filter(s => s !== stream)
+				reject(err)
+			})
+			ctx.res.on('close', () => {
+				this.streamReceivers = this.streamReceivers.filter(s => s !== stream)
+				console.log(`Client closed. ${this.streamReceivers.length} streams active.`)
+				resolve()
+			})
+			ctx.type = 'multipart/x-mixed-replace; boundary=--jpgboundary'
+			ctx.status = 200
 		})
-		ctx.type = 'multipart/x-mixed-replace; boundary=--jpgboundary'
-		ctx.status = 200
-		return new Promise(_resolve => {
+	}
+	/** Send an image from the stream of mjpegs to the client */
+	async setupClientStreamAndReturnImage (streamId: string, ctx: Koa.ParameterizedContext<Koa.DefaultState, Koa.DefaultContext>) {
+		if (this.streamReceivers.length >= clientLimit) {
+			ctx.status = 429
+			ctx.body = 'Maximum number of streams exceeded.'
+			return
+		}
+
+		await this.setupStream(streamId)
+
+		return new Promise((resolve, reject) => {
+
+			let stream = { ctx: ctx, drained: true, singleImage: true, resolve }
+			this.streamReceivers.push(stream)
+			ctx.res.on('drain', () => { stream.drained = true })
+			console.log(`Image client connected. ${this.streamReceivers.length} streams now active.`)
+
+			ctx.res.on('error', err => {
+				console.error(`Error for stream at index ${this.streamReceivers.indexOf(stream)}: ${err.message}`)
+				this.streamReceivers = this.streamReceivers.filter(s => s !== stream)
+				reject(err)
+			})
+			ctx.res.on('close', () => {
+				this.streamReceivers = this.streamReceivers.filter(s => s !== stream)
+				resolve()
+			})
+			ctx.type = 'image/jpeg'
+			ctx.status = 200
 			// A promise that never resolves
 		})
 	}
 	/** Receive the stream of mjpegs from CasparCG */
-	feedStream (streamId: string, ctx: Koa.ParameterizedContext<Koa.DefaultState, Koa.DefaultContext>) {
+	feedStream (streamId: string, ctx: Koa.ParameterizedContext<Koa.DefaultState, Koa.DefaultContext>): void {
 		console.log(`Receiving stream ${streamId} started`)
 		ctx.req.on('data', (d: Buffer) => {
 			// console.log('feedStream data ' + streamId)
@@ -262,25 +290,37 @@ export class ImageProvider {
 				return
 			}
 			if (match) {
-				this.latest = this.building.length > 12 && this.building[0] === 0xff && this.building[1] === 0xd8 ? Buffer.from(this.building.slice(0, -12)) : this.latest
+				this.latest = (
+					this.building.length > 12 && this.building[0] === 0xff && this.building[1] === 0xd8 ?
+					Buffer.from(this.building.slice(0, -12)) :
+					this.latest
+				)
 				this.frameCounter++
 				Promise.all(
 					this.streamReceivers.map(
-						(s, index) => new Promise((resolve: (b: boolean) => void, _reject) => {
+						(streamReceiver, index) => new Promise((resolve: (b: boolean) => void, _reject) => {
 							// console.log('<<<', index, s.drained)
-							if (!s.drained) {
+							if (!streamReceiver.drained) {
 								console.log(`Dropping stream ${index} frame ${this.frameCounter}`)
-								return resolve(s.drained)
+								return resolve(streamReceiver.drained)
 							}
-							s.r.write('--jpgboundary\r\n')
-							s.r.write('Content-type: image/jpeg\r\n')
-							s.r.write(`Content-length: ${this.latest.length}\r\n\r\n`)
-							s.drained = s.r.write(this.latest)
-							// console.log('>>>', index, s.drained)
-							resolve(s.drained)
+							if (streamReceiver.singleImage) {
+								// Write single image and tie it off
+								streamReceiver.ctx.type = 'image/jpeg'
+								streamReceiver.ctx.body = this.latest
+								this.streamReceivers = this.streamReceivers.filter(s => s !== streamReceiver)
+								if (streamReceiver.resolve) streamReceiver.resolve()
+							} else {
+								streamReceiver.ctx.res.write('--jpgboundary\r\n')
+								streamReceiver.ctx.res.write('Content-type: image/jpeg\r\n')
+								streamReceiver.ctx.res.write(`Content-length: ${this.latest.length}\r\n\r\n`)
+								streamReceiver.drained = streamReceiver.ctx.res.write(this.latest)
+								// console.log('>>>', index, s.drained)
+							}
+							resolve(streamReceiver.drained)
 						}).catch(err => { console.error(`Failed to send JPEG to stream ${index}: ${err.message}`) })
 					)
-				)
+				).catch(console.error)
 
 				if (+match[2] !== 11532) {
 					this.building = d.slice(Buffer.byteLength(match[1], 'utf8'))
@@ -301,22 +341,21 @@ export class ImageProvider {
 		ctx.body = `Received frame part ${this.frameCounter}`
 	}
 	private async getRegionRoute (channel: number, layer?: number): Promise<RegionRoute | undefined> {
-		const id = this.getRouteId(channel, layer)
+		const contentId = this.getcontentId(channel, layer)
 
-		const route: RegionRoute = this._regionRoutes[id]
+		const route: RegionContent = this._regionContents[contentId]
 
 		if (!route) {
-			const newRoute: RegionRoute | undefined = await this.createNewRegionRoute(channel, layer)
+			const newRoute: RegionRoute | undefined = await this.createNewRegionRoute(contentId, channel, layer)
 
 			return newRoute
 		} else {
+			if (!isRegionRoute(route)) throw Error('Internal Error: Route "${contentId}" is not a RegionRoute')
 			return route
 		}
 	}
-	private async createNewRegionRoute (channel: number, layer?: number): Promise<RegionRoute | undefined> {
-
-		const id = this.getRouteId(channel, layer)
-		console.log('Creating new region route', id, channel, layer)
+	private async createNewRegion (contentId: string, channel?: number, layer?: number): Promise<Region | undefined> {
+		console.log('Creating new region route', contentId, channel, layer)
 
 		// find first free region
 		let foundRegion: Region | undefined = _.find(this.getAvailableRegions(), (region: Region) => {
@@ -326,23 +365,21 @@ export class ImageProvider {
 		if (foundRegion) {
 			this._takenRegions[foundRegion.id] = true
 
-			const route: RegionRoute = {
-				region: foundRegion,
-				channel: channel,
-				layer: layer
+			if (channel) {
+				const route: RegionRoute = {
+					region: foundRegion,
+					channel: channel,
+					layer: layer
+				}
+				this._regionContents[contentId] = route
+			} else {
+				const content: RegionCustomContent = {
+					region: foundRegion,
+					contentId: contentId
+				}
+				this._regionContents[contentId] = content
 			}
-			this._regionRoutes[id] = route
 
-			// console.log('foundRegion', foundRegion)
-			// console.log('route', route)
-
-			// Route the layer to the region:
-			await this.casparCGRoute(
-				foundRegion.channel,
-				foundRegion.layer,
-				route.channel,
-				route.layer
-			)
 			await this.casparcg.mixerFill(
 				foundRegion.channel,
 				foundRegion.layer,
@@ -351,8 +388,29 @@ export class ImageProvider {
 				foundRegion.width / foundRegion.originalWidth,
 				foundRegion.height / foundRegion.originalHeight
 			)
+		}
+		return foundRegion
+	}
+	private async createNewRegionRoute (contentId: string, channel: number, layer?: number): Promise<RegionRoute | undefined> {
 
-			return route
+		const foundRegion = await this.createNewRegion(contentId, channel, layer)
+		if (foundRegion) {
+			const regionContent = this._regionContents[contentId]
+
+			if (isRegionRoute(regionContent)) {
+
+				const route: RegionRoute = regionContent
+
+				// Route the layer to the region:
+				await this.casparCGRoute(
+					foundRegion.channel,
+					foundRegion.layer,
+					route.channel,
+					route.layer
+				)
+				return route
+			}
+
 		}
 		return undefined
 	}
@@ -386,107 +444,21 @@ export class ImageProvider {
 		})
 		return regions
 	}
-	private getRouteId (channel: number, layer?: number) {
+	private getcontentId (channel: number, layer?: number) {
 		if (layer) return `l_${channel}_${layer}`
 		return `c_${channel}`
 	}
-	private async fetchSnapshotData (route: RegionRoute): Promise<Buffer> {
-		const channelId = route.region.channel + ''
-		// First, check if we have a not-too-old stored snapshot of it?
-		const snapshot = this._snapshots[channelId]
-		if (snapshot) {
-
-			if (snapshot.timestamp + config.snapshotTimeout > Date.now()) {
-				let data = await snapshot.data
-				return data
-			} else {
-				// the snapshot is too old
-
-				delete this._snapshots[channelId]
-				// todo: remove snapshot on disk?
-			}
-		}
-
-		// Renew snapshot:
-		const i = this._fileIterator++
-		if (this._fileIterator > config.maxFileCount) {
-			this._fileIterator = 0
-		}
-		const filename = `snap_${i}`
-		const timestamp = Date.now()
-
-		const localFilePath = path.join(config.mediaFolderName || '', filename)
-		const filePath = path.join(this.mediaPath, localFilePath + '.png')
-
-		this._snapshots[channelId] = {
-			timestamp: timestamp,
-			filePath: filePath,
-			data: (async (filePath: string): Promise<Buffer> => {
-
-				if (await fsExists(filePath)) {
-					// remove it first
-					await fsUnlink(filePath)
-				}
-				await this.casparCGPrint(route.region.channel, localFilePath.replace(/\\/g, '/'))
-
-				await this.waitForFile(filePath)
-				// todo: maybe wait until file appears here?
-
-				// await this.wait(500) // wait a bit more for the write to finish
-
-				const fileData = await fsReadFile(filePath)
-
-				return fileData
-			})(filePath)
-		}
-
-		const data = await this._snapshots[channelId].data
-		return data
-	}
-	private async waitForFile (filePath: string) {
-		// const startTime = Date.now()
-		for (let i = 0; i < 30; i++) {
-			if (await fsExists(filePath)) break
-			await this.wait(50)
-		}
-		// console.log('File appeared after', Date.now() - startTime)
-		// At this point, we've estabilshed that the file exists.
-		// Now, let's wait until the file size stops growing
-		let fileSize = 0
-		for (let i = 0; i < 30; i++) {
-			const stat = await fsStat(filePath)
-			if (stat.size !== fileSize) {
-				fileSize = stat.size
-				await this.wait(50)
-			} else break
-		}
-		// console.log('File stopped growing after', Date.now() - startTime)
-	}
-
-	private wait (time: number) {
-		return new Promise(resolve => setTimeout(resolve, time))
-	}
-	private async casparCGPrint (channel: number, fileName: string) {
-		await this.casparcg.do(
-			new AMCP.CustomCommand({
-				channel: channel,
-				command: (
-					`ADD ${channel} IMAGE "${fileName}"`
-				)
-			})
-		)
-	}
 	private async casparCGRoute (
-		channel: number,
-		layer: number,
-		routeChannel: number,
-		routeLayer?: number
+		toChannel: number,
+		toLayer: number,
+		fromChannel: number,
+		fromLayer?: number
 	) {
 		await this.casparcg.do(
 			new AMCP.CustomCommand({
-				channel: channel,
+				channel: toChannel,
 				command: (
-					`PLAY ${channel}-${layer} route://${routeChannel + (routeLayer ? '-' + routeLayer : '')}`
+					`PLAY ${toChannel}-${toLayer} route://${fromChannel + (fromLayer ? '-' + fromLayer : '')}`
 				)
 			})
 		)
@@ -504,15 +476,21 @@ interface Region {
 	originalWidth: number
 	originalHeight: number
 }
+type RegionContent = RegionRoute | RegionCustomContent
 interface RegionRoute {
 	region: Region
 	channel: number
 	layer?: number
 }
-interface Snapshot {
-	timestamp: number
-	filePath: string
-	data: Promise<Buffer>
+function isRegionRoute (o: RegionContent): o is RegionRoute {
+	return typeof (o as any).channel === 'number'
+}
+interface RegionCustomContent {
+	region: Region
+	contentId: string
+}
+function isRegionCustomContent (o: RegionContent): o is RegionCustomContent {
+	return typeof (o as any).contentId === 'string'
 }
 export interface StreamInfo {
 	regions: StreamInfoRegion[]
@@ -520,8 +498,14 @@ export interface StreamInfo {
 }
 /**  */
 export interface StreamInfoRegion {
-	channel: number
+	contentId: string
+	channel?: number
 	layer?: number
+
+	region: {
+		channel: number
+		layer: number
+	}
 
 	streamId: string
 

@@ -34,14 +34,17 @@ imageProvider.init()
 <li><a href="/info">/info</a></li>
 <li><a href="/channel/:channel/view-stream">/channel/:channel/view-stream</a></li>
 <li><a href="/stream/:streamId">/stream/:streamId</a></li>
+<li><a href="/image/:streamId">/image/:streamId</a></li>
 <li><a href="/channel/:channel/stream">/channel/:channel/stream</a></li>
 <li><a href="/channel/:channel/:layer/stream">/channel/:channel/:layer/stream</a></li>
 </ul>
-<h3>To-be deprecated:</h3>
+<!--
+<h3>Deprecated:</h3>
 <ul>
 <li><a href="/channel/:channel/view-image">/channel/:channel/view-image</a></li>
 <li><a href="/channel/:channel/image">/channel/:channel/image</a></li>
 <li><a href="/channel/:channel/:layer/image">/channel/:channel/:layer/image</a></li>
+-->
 <ul>
 </body></html>
 `
@@ -147,6 +150,7 @@ imageProvider.init()
 	</body>
 	</html>`
 	})
+	/*
 	router.get('/channel/:channel/image', async (ctx) => {
 		// Set up internal routes and return a png image for that channell
 		try {
@@ -183,6 +187,7 @@ imageProvider.init()
 			throw e
 		}
 	})
+	*/
 	router.get('/channel/:channel/stream', async (ctx) => {
 		// Set up internal routes of the channel and return info about the resulting stream
 		try {
@@ -207,6 +212,18 @@ imageProvider.init()
 			throw e
 		}
 	})
+	router.get('/custom/:regionId', async (ctx) => {
+		// Instead of setting up routes, just use a layer in the grid and let the external system add content to it later
+		try {
+			const streamInfo = await imageProvider.initStream(ctx.params.regionId)
+			ctx.type = 'application/json; charset=utf-8'
+			ctx.body = JSON.stringify(streamInfo)
+		} catch (e) {
+			console.log('Error yo')
+			console.log(e.stack)
+			throw e
+		}
+	})
 	router.get('/stream/:streamId', async (ctx) => {
 		// Return the stream to the client
 		try {
@@ -217,10 +234,20 @@ imageProvider.init()
 			throw e
 		}
 	})
+	router.get('/image/:streamId', async (ctx) => {
+		// Return the an image to the client
+		try {
+			await imageProvider.setupClientStreamAndReturnImage(ctx.params.streamId, ctx)
+		} catch (e) {
+			console.log('Error yo')
+			console.log(e.stack)
+			throw e
+		}
+	})
 	router.post('/feed/:streamId', async (ctx) => {
 		// Receive a stream of mjpegs from CasparCG
 		try {
-			await imageProvider.feedStream(ctx.params.streamId, ctx)
+			imageProvider.feedStream(ctx.params.streamId, ctx)
 		} catch (e) {
 			console.log('Error yo')
 			console.log(e.stack)
