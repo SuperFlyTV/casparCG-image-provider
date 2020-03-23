@@ -30,22 +30,28 @@ imageProvider.init()
 	}))
 	router.get('/', async (ctx) => {
 		ctx.body = `<html><body><h1>Endpoints:</h1>
-<ul>
-<li><a href="/info">/info</a></li>
-<li><a href="/channel/:channel/view-stream">/channel/:channel/view-stream</a></li>
-<li><a href="/stream/:streamId">/stream/:streamId</a></li>
-<li><a href="/image/:streamId">/image/:streamId</a></li>
-<li><a href="/channel/:channel/stream">/channel/:channel/stream</a></li>
-<li><a href="/channel/:channel/:layer/stream">/channel/:channel/:layer/stream</a></li>
-</ul>
+<table>
+<tbody>
+
+<tr><td><a href="/info">/info</a></td><td>Info about all regouns and streams</td></tr>
+<tr><td><a href="/channel/1/view-stream">/channel/:channel/view-stream</a></td><td>Reference client implementation</td></tr>
+
+<tr><td><a href="/stream/stream2">/stream/:streamId</a></td><td>Receive a grid as a motion-jpeg stream</td></tr>
+<tr><td><a href="/image/stream2">/image/:streamId</a></td><td>Receice a grid as a jpeg image</td></tr>
+
+<tr><td><a href="/channel/1/stream">/channel/:channel/stream</a></td><td>Route a channel to a grid-stream</td></tr>
+<tr><td><a href="/channel/1/10/stream">/channel/:channel/:layer/stream</a></td><td>Route a layer to a grid-stream</td></tr>
+<tr><td><a href="custom/customName">custom/:regionId</a></td><td>Reserve a spot in a grid, to be populated with content later</td></tr>
+
 <!--
 <h3>Deprecated:</h3>
 <ul>
-<li><a href="/channel/:channel/view-image">/channel/:channel/view-image</a></li>
-<li><a href="/channel/:channel/image">/channel/:channel/image</a></li>
-<li><a href="/channel/:channel/:layer/image">/channel/:channel/:layer/image</a></li>
+<tr><td><a href="/channel/:channel/view-image">/channel/:channel/view-image</a></td><td></td></tr>
+<tr><td><a href="/channel/:channel/image">/channel/:channel/image</a></td><td></td></tr>
+<tr><td><a href="/channel/:channel/:layer/image">/channel/:channel/:layer/image</a></td><td></td></tr>
 -->
-<ul>
+</tbody>
+</table>
 </body></html>
 `
 	})
