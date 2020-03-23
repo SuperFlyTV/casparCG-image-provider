@@ -8,8 +8,8 @@ export interface IConfig {
 	/** CasparCG port */
 	casparPort?: number
 	/** Which channels to use for snapshotting. If omitted, the image-provider will use the last CasparCG-channel. */
-	channels?: ChannelSetup[]
 
+	channels?: ChannelSetup[]
 	stream?: {
 		/** Stream min quality (default: 2) */
 		qmin?: number
@@ -20,7 +20,7 @@ export interface IConfig {
 export interface ChannelSetup {
 	/** CasparCG channel number (starting on 1) */
 	channel: number
-	/** What resolution to use. 1 = full resolution. 2 = will use the channel as a 2x2 grid, 3 = 3x3 etc */
+	/** What resolution to use. 1 = full resolution. 2 = will use the channel as a 2x2 grid, 3 = 3x3 etc. (Defaults to 3) */
 	resolution: number
 
 	width: number

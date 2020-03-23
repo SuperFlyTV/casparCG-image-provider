@@ -91,7 +91,7 @@ export class ImageProvider {
 
 				this.channelSetup = [{
 					channel: lastCasparChannelNumber,
-					resolution: Math.max(2, Math.ceil(Math.sqrt((lastCasparChannelNumber - 1) * 4))), // estimate how many
+					resolution: 3,
 					width: size.width,
 					height: size.height
 				}]
