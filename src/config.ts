@@ -1,3 +1,19 @@
+import * as fs from 'fs'
+// import * as path from 'path'
+import * as deepExtend from 'deep-extend'
+
+const configFileName = './image-provider.config.json'
+
+let configContents: Buffer
+let configParsed = {}
+let found = true
+
+try {
+	configContents = fs.readFileSync(configFileName)
+	configParsed = JSON.parse(configContents.toString())
+} catch (error) {
+	found = false
+}
 
 export interface IConfig {
 	/** This server's port  */
@@ -27,7 +43,7 @@ export interface ChannelSetup {
 	height: number
 }
 
-export const config: IConfig = {
+let defaultConfig: IConfig = {
 	port: 5255,
 	casparHost: '127.0.0.1',
 	casparPort: 5250,
@@ -46,3 +62,8 @@ export const config: IConfig = {
 	// 	}
 	// ]
 }
+
+deepExtend(defaultConfig, configParsed)
+
+export const config = defaultConfig
+export const foundConfig = found
