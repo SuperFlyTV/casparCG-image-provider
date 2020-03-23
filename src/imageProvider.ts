@@ -171,7 +171,7 @@ export class ImageProvider {
 					url: `/stream/${region.streamId}`,
 
 					channel: route.region.channel,
-					layer: route.region.layer,
+
 					width: route.region.originalWidth,
 					height: route.region.originalHeight
 				}
@@ -520,7 +520,6 @@ export interface StreamInfoStream {
 	url: string
 
 	channel: number
-	layer: number
 
 	width: number
 	height: number
