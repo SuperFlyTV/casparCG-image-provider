@@ -107,13 +107,28 @@ export class ImageProvider {
 				return this.casparcg.clear(channel.channel)
 			})
 		)
+		await this.initStreamsFromConfig()
 	}
 	reset () {
 		console.log('Resetting all streams')
 		this._regionContents = {}
+		this._takenRegions = {}
 		this.casparStreams = {}
 
+		this.initStreamsFromConfig().catch(e => {
+			console.log('Error')
+			console.log(e.stack)
+		})
 		// Perhaps also clear caspar-layer ${myStream.channel}-998 here?
+	}
+	async initStreamsFromConfig () {
+		if (config.streams) {
+			await Promise.all(
+				_.map(config.streams, stream => {
+					return this.initStream(stream.channel, stream.layer)
+				})
+			)
+		}
 	}
 	async initStream (id: string): Promise<StreamInfo>
 	async initStream (channel: number, layer?: number): Promise<StreamInfo>

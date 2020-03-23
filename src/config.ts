@@ -32,6 +32,9 @@ export interface IConfig {
 		/** Stream max quality (default: 5) */
 		qmax?: number
 	}
+
+	/** Which channels to put on the grid by default */
+	streams?: StreamSetup[]
 }
 export interface ChannelSetup {
 	/** CasparCG channel number (starting on 1) */
@@ -41,6 +44,11 @@ export interface ChannelSetup {
 
 	width: number
 	height: number
+}
+
+export interface StreamSetup {
+	channel: number
+	layer?: number
 }
 
 let defaultConfig: IConfig = {
@@ -59,6 +67,13 @@ let defaultConfig: IConfig = {
 	// 		resolution: 2,
 	// 		width: 1280,
 	// 		height: 720
+	// 	}
+	// ]
+
+	// streams: [
+	// 	{
+	// 		channel: 1,
+	// 		layer: 2
 	// 	}
 	// ]
 }
