@@ -122,7 +122,8 @@ export class ImageProvider {
 		let region: Region | undefined = undefined
 		if (typeof channelOrId === 'string') {
 			const contentId = channelOrId
-			region = await this.createNewRegion(contentId)
+			const regionContent = await this.getRegionCustomContent(contentId)
+			if (regionContent) region = regionContent.region
 		} else {
 			const channel = channelOrId
 			const route = await this.getRegionRoute(channel, layer)
@@ -343,15 +344,55 @@ export class ImageProvider {
 	private async getRegionRoute (channel: number, layer?: number): Promise<RegionRoute | undefined> {
 		const contentId = this.getcontentId(channel, layer)
 
-		const route: RegionContent = this._regionContents[contentId]
+		const regionRoute: RegionContent = this._regionContents[contentId]
 
-		if (!route) {
-			const newRoute: RegionRoute | undefined = await this.createNewRegionRoute(contentId, channel, layer)
+		if (!regionRoute) {
+			const newRegionRoute: RegionRoute | undefined = await this.createNewRegionRoute(contentId, channel, layer)
 
-			return newRoute
+			return newRegionRoute
 		} else {
-			if (!isRegionRoute(route)) throw Error('Internal Error: Route "${contentId}" is not a RegionRoute')
-			return route
+			if (!isRegionRoute(regionRoute)) throw new Error(`Internal Error: regionRoute "${contentId}" is not a RegionRoute`)
+			return regionRoute
+		}
+	}
+	private async createNewRegionRoute (contentId: string, channel: number, layer?: number): Promise<RegionRoute | undefined> {
+
+		const foundRegion = await this.createNewRegion(contentId, channel, layer)
+		if (foundRegion) {
+			const regionContent = this._regionContents[contentId]
+
+			if (isRegionRoute(regionContent)) {
+
+				const route: RegionRoute = regionContent
+
+				// Route the layer to the region:
+				await this.casparCGRoute(
+					foundRegion.channel,
+					foundRegion.layer,
+					route.channel,
+					route.layer
+				)
+				return route
+			}
+
+		}
+		return undefined
+	}
+	private async getRegionCustomContent (contentId: string): Promise<RegionCustomContent | undefined> {
+
+		const regionContent: RegionContent = this._regionContents[contentId]
+
+		if (!regionContent) {
+			const newRegion = await this.createNewRegion(contentId)
+			if (newRegion) {
+				const regionContent = this._regionContents[contentId]
+				if (!isRegionCustomContent(regionContent)) throw new Error(`Internal Error: regionContent "${contentId}" is not a RegionCustomContent`)
+				return regionContent
+			}
+			throw new Error(`Internal Error: _regionContents not containing "${contentId}" after createNewRegion`)
+		} else {
+			if (!isRegionCustomContent(regionContent)) throw new Error(`Internal Error: regionContent "${contentId}" is not a RegionCustomContent`)
+			return regionContent
 		}
 	}
 	private async createNewRegion (contentId: string, channel?: number, layer?: number): Promise<Region | undefined> {
@@ -390,29 +431,6 @@ export class ImageProvider {
 			)
 		}
 		return foundRegion
-	}
-	private async createNewRegionRoute (contentId: string, channel: number, layer?: number): Promise<RegionRoute | undefined> {
-
-		const foundRegion = await this.createNewRegion(contentId, channel, layer)
-		if (foundRegion) {
-			const regionContent = this._regionContents[contentId]
-
-			if (isRegionRoute(regionContent)) {
-
-				const route: RegionRoute = regionContent
-
-				// Route the layer to the region:
-				await this.casparCGRoute(
-					foundRegion.channel,
-					foundRegion.layer,
-					route.channel,
-					route.layer
-				)
-				return route
-			}
-
-		}
-		return undefined
 	}
 	private getAvailableRegions (): Region[] {
 		const regions: Region[] = []
