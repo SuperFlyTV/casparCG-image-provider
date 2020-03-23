@@ -1,7 +1,7 @@
 import * as fs from 'fs'
 import * as deepExtend from 'deep-extend'
 
-const configFileName = './image-provider.config.json'
+const configFileName = './casparcg-image-provider.config.json'
 
 let configContents: Buffer
 let configParsed = {}
