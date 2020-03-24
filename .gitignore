@@ -13,3 +13,5 @@ wallaby.conf.js
 
 local/
 certs/
+
+casparcg-image-provider.config.json

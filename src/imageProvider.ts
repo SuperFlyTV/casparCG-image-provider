@@ -2,7 +2,7 @@ import * as Koa from 'koa'
 import * as _ from 'underscore'
 
 import { AMCP, CasparCG, CasparCGSocketStatusEvent } from 'casparcg-connection'
-import { ChannelSetup, config } from './config'
+import { ChannelSetup, config, isDefaultRegionRoute, isDefaultRegionCustomContent } from './config'
 
 // import { ServerResponse } from 'http'
 
@@ -107,13 +107,36 @@ export class ImageProvider {
 				return this.casparcg.clear(channel.channel)
 			})
 		)
+		await this.initStreamsFromConfig()
 	}
 	reset () {
 		console.log('Resetting all streams')
 		this._regionContents = {}
+		this._takenRegions = {}
 		this.casparStreams = {}
 
+		this.initStreamsFromConfig().catch(e => {
+			console.log('Error')
+			console.log(e.stack)
+		})
 		// Perhaps also clear caspar-layer ${myStream.channel}-998 here?
+	}
+	async initStreamsFromConfig () {
+		if (config.defaultRegions) {
+			console.log('Setting up default regions from config file...')
+			await Promise.all(
+				_.map<any>(config.defaultRegions, region => {
+					if (isDefaultRegionRoute(region)) {
+						return this.initStream(region.channel, region.layer)
+					} else if (isDefaultRegionCustomContent(region)) {
+						return this.initStream(region.contentId)
+					} else {
+						console.error('Unknown defaultRegion!')
+						return Promise.resolve()
+					}
+				})
+			)
+		}
 	}
 	async initStream (id: string): Promise<StreamInfo>
 	async initStream (channel: number, layer?: number): Promise<StreamInfo>
@@ -334,7 +357,6 @@ export class ImageProvider {
 			}
 		})
 		ctx.req.on('close', () => {
-			console.log(`Receiving stream ${streamId} ended`)
 			this.latest = Buffer.alloc(0)
 			this.building = Buffer.alloc(0)
 			this.frameCounter = 0
