@@ -84,6 +84,7 @@
   ],
   "dependencies": {
     "casparcg-connection": "^4.9.0",
+    "deep-extend": "^0.6.0",
     "koa": "^2.11.0",
     "koa-bodyparser": "^4.2.1",
     "koa-router": "^7.4.0",
