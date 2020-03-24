@@ -3,14 +3,14 @@ import * as Router from 'koa-router'
 import * as bodyParser from 'koa-bodyparser'
 
 import { ImageProvider } from './imageProvider'
-import { config, foundConfig } from './config'
+import { config, reloadConfig } from './config'
 import * as _ from 'underscore'
 
 console.log('*******************************************')
 console.log('CasparCG Image Provider')
 console.log('*******************************************')
 console.log('Initializing...')
-console.log(foundConfig ? 'Config file found.' : 'Config file not found.')
+reloadConfig()
 
 const app = new Koa()
 const router = new Router()
