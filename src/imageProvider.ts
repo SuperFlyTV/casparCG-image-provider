@@ -101,12 +101,14 @@ export class ImageProvider {
 			}
 		}
 
-		// Reset casparCG channels on startup:
-		await Promise.all(
-			_.map(this.channelSetup, channel => {
-				return this.casparcg.clear(channel.channel)
-			})
-		)
+		if (config.clearOnStartup) {
+			// Reset casparCG channels on startup:
+			await Promise.all(
+				_.map(this.channelSetup, channel => {
+					return this.casparcg.clear(channel.channel)
+				})
+			)
+		}
 		await this.initStreamsFromConfig()
 	}
 	reset () {

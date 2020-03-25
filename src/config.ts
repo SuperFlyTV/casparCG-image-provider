@@ -21,6 +21,9 @@ export interface IConfig {
 
 	/** Which channels/layers to put on the grid by default */
 	defaultRegions?: DefaultRegion[]
+
+	/** If true, sends clear commands on startup */
+	clearOnStartup?: boolean
 }
 export interface ChannelSetup {
 	/** CasparCG channel number (starting on 1) */
