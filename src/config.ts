@@ -1,5 +1,4 @@
 import * as fs from 'fs'
-import * as deepExtend from 'deep-extend'
 
 export interface IConfig {
 	/** This server's port  */
@@ -52,7 +51,7 @@ export function isDefaultRegionCustomContent (region: DefaultRegion): region is 
 
 const configFileName = './casparcg-image-provider.config.json'
 
-export const config: IConfig = {
+export let config: IConfig = {
 	// Default config:
 
 	port: 5255,
@@ -87,7 +86,7 @@ export function reloadConfig (): boolean {
 		console.log(`Loading config file ${configFileName}`)
 		const configContents: Buffer = fs.readFileSync(configFileName)
 		const newConfig = JSON.parse(configContents.toString())
-		deepExtend(config, newConfig)
+		config = { ...config, ...newConfig }
 		console.log('Loaded config:', JSON.stringify(config, null, 2))
 		return true
 	} catch (error) {
