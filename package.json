@@ -42,7 +42,8 @@
     "inspect": "node --inspect dist/index.js",
     "start": "node dist/index.js",
     "watch-server": "nodemon src/index.ts",
-    "pkg-win32": "yarn build && pkg -t node12-win dist/index.js -o dist/casparcg-image-provider.exe"
+    "pkg-win32": "yarn build && pkg -t node12-win dist/index.js -o dist/casparcg-image-provider.exe",
+    "pkg-linux": "yarn build && pkg -t node12-linux dist/index.js -o dist/casparcg-image-provider"
   },
   "devDependencies": {
     "@types/jest": "^24.0.17",
