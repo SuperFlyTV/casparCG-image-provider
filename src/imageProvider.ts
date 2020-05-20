@@ -223,15 +223,18 @@ export class ImageProvider {
 			const qmax = config.stream && config.stream.qmax || 5
 
 			const streamProducerId = 998
-
-			await this.casparcg.do(
-				new AMCP.CustomCommand({
-					channel: myStream.channel,
-					command: (
-						`REMOVE ${myStream.channel}-${streamProducerId}`
-					)
-				})
-			)
+			try {
+				await this.casparcg.do(
+					new AMCP.CustomCommand({
+						channel: myStream.channel,
+						command: (
+							`REMOVE ${myStream.channel}-${streamProducerId}`
+						)
+					})
+				)
+			} catch (e) {
+				console.log(`Cannot remove consumer ${myStream.channel}-${streamProducerId}.`)
+			}
 
 			await this.casparcg.do(
 				new AMCP.CustomCommand({
