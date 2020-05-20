@@ -53,6 +53,7 @@ export class ImageProvider {
 	private frameCounter = 0
 
 	private wasDisconnected: boolean = false
+	private versionBelow220: boolean = false
 
 	constructor () {
 		console.log(`Connecting to CasparCG at ${config.casparHost}, port ${config.casparPort}...`)
@@ -71,6 +72,7 @@ export class ImageProvider {
 	}
 
 	async init () {
+		await this.checkVersion()
 
 		const casparConfig = await this.casparcg.infoConfig()
 
@@ -223,21 +225,28 @@ export class ImageProvider {
 			const qmax = config.stream && config.stream.qmax || 5
 
 			const streamProducerId = 998
+			try {
+				await this.casparcg.do(
+					new AMCP.CustomCommand({
+						channel: myStream.channel,
+						command: (
+							`REMOVE ${myStream.channel}-${streamProducerId}`
+						)
+					})
+				)
+			} catch (e) {
+				console.log(`Cannot remove consumer ${myStream.channel}-${streamProducerId}.`)
+			}
+
+			const params = this.versionBelow220 ?
+				`-f mpjpeg -multiple_requests 1 -qmin ${qmin} -qmax ${qmax}` :
+				`-format mpjpeg -multiple_requests 1 -qmin:v ${qmin} -qmax:v ${qmax}`
 
 			await this.casparcg.do(
 				new AMCP.CustomCommand({
 					channel: myStream.channel,
 					command: (
-						`REMOVE ${myStream.channel}-${streamProducerId}`
-					)
-				})
-			)
-
-			await this.casparcg.do(
-				new AMCP.CustomCommand({
-					channel: myStream.channel,
-					command: (
-						`ADD ${myStream.channel}-${streamProducerId} STREAM http://127.0.0.1:${config.port}/feed/${myStream.id} -f mpjpeg -multiple_requests 1 -qmin ${qmin} -qmax ${qmax}`
+						`ADD ${myStream.channel}-${streamProducerId} STREAM http://127.0.0.1:${config.port}/feed/${myStream.id} ${params}`
 					)
 				})
 			)
@@ -504,6 +513,13 @@ export class ImageProvider {
 				)
 			})
 		)
+	}
+	private async checkVersion () {
+		const versionCommand = await this.casparcg.version()
+		const versionParts = versionCommand.response.data.toString().split('.')
+		if (parseInt(versionParts[0], 10) === 2 && parseInt(versionParts[1], 10) < 2) {
+			this.versionBelow220 = true
+		}
 	}
 }
 interface Region {
