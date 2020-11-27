@@ -46,32 +46,52 @@ export class ImageProvider {
 	private channelSetup: ChannelSetup[] = []
 
 	// Streams:
-	private casparStreams: {[streamId: string]: CasparStream} = {}
-	private latest: Buffer = Buffer.alloc(0)
-	private building: Buffer = Buffer.alloc(0)
-	private streamReceivers: Array<StreamReceiver> = []
-	private frameCounter = 0
+	private streams: {[streamId: string]: Stream} = {}
+	private standaloneStreamsIds: Set<string> = new Set()
+	private streamReceivers: {[streamId: string]: Array<StreamReceiver>} = {}
 
 	private wasDisconnected: boolean = false
 	private versionBelow220: boolean = false
 
 	constructor () {
-		console.log(`Connecting to CasparCG at ${config.casparHost}, port ${config.casparPort}...`)
-		this.casparcg = new CasparCG(config.casparHost, config.casparPort)
-		this.casparcg.on(CasparCGSocketStatusEvent.CONNECTED, () => {
-			console.log('CasparCG connected!')
-			if (this.wasDisconnected) {
-				this.wasDisconnected = false
-				this.reset()
+		if (config.casparHost) {
+			console.log(`Connecting to CasparCG at ${config.casparHost}, port ${config.casparPort}...`)
+			this.casparcg = new CasparCG(config.casparHost, config.casparPort)
+			this.casparcg.on(CasparCGSocketStatusEvent.CONNECTED, () => {
+				console.log('CasparCG connected!')
+				if (this.wasDisconnected) {
+					this.wasDisconnected = false
+					this.reset()
+				}
+			})
+			this.casparcg.on(CasparCGSocketStatusEvent.DISCONNECTED, () => {
+				console.log('CasparCG disconnected!')
+				this.wasDisconnected = true
+			})
+		} else {
+			console.log(`CasparCG host not provided`)
+			if (config.standaloneStreams) {
+				console.log('Setting up standalone streams from config file...')
+				for (const channel of config.standaloneStreams) {
+					console.log('Setting up new stream')
+					this.streams[channel.id] = {
+						created: Date.now(),
+						lastReceivedTime: 0,
+						latest: Buffer.alloc(0),
+						building: Buffer.alloc(0),
+						frameCounter: 0
+					}
+				}
 			}
-		})
-		this.casparcg.on(CasparCGSocketStatusEvent.DISCONNECTED, () => {
-			console.log('CasparCG disconnected!')
-			this.wasDisconnected = true
-		})
+		}
 	}
 
 	async init () {
+
+		if (!config.casparHost) {
+			console.log(`Running without CasparCG`)
+			return
+		}
 		await this.checkVersion()
 
 		const casparConfig = await this.casparcg.infoConfig()
@@ -117,7 +137,11 @@ export class ImageProvider {
 		console.log('Resetting all streams')
 		this._regionContents = {}
 		this._takenRegions = {}
-		this.casparStreams = {}
+		for (const streamId in this.streams) {
+			if (!this.standaloneStreamsIds.has(streamId)) {
+				delete this.streams[streamId]
+			}
+		}
 
 		this.initStreamsFromConfig().catch(e => {
 			console.log('Error')
@@ -209,16 +233,23 @@ export class ImageProvider {
 		return streamInfo
 	}
 	async setupStream (streamId: string) {
+		if (!this.streamReceivers[streamId]) {
+			this.streamReceivers[streamId] = []
+		}
+
 		// Setup the caspar stream if not set:
 		const streamInfo = this.getStreamInfo()
 		const myStream = _.find(streamInfo.streams, stream => stream.id === streamId)
 		if (!myStream) return
 
-		if (!this.casparStreams[streamId]) {
+		if (!this.streams[streamId]) {
 			console.log('Setting up new Caspar-stream')
-			this.casparStreams[streamId] = {
+			this.streams[streamId] = {
 				created: Date.now(),
-				lastReceivedTime: 0
+				lastReceivedTime: 0,
+				latest: Buffer.alloc(0),
+				building: Buffer.alloc(0),
+				frameCounter: 0
 			}
 
 			const qmin = config.stream && config.stream.qmin || 2
@@ -255,7 +286,7 @@ export class ImageProvider {
 	}
 	/** Send a stream of mjpegs to the client */
 	async setupClientStream (streamId: string, ctx: Koa.ParameterizedContext<Koa.DefaultState, Koa.DefaultContext>) {
-		if (this.streamReceivers.length >= clientLimit) {
+		if (this.streamReceivers[streamId] && this.streamReceivers[streamId].length >= clientLimit) {
 			ctx.status = 429
 			ctx.body = 'Maximum number of streams exceeded.'
 			return
@@ -265,16 +296,16 @@ export class ImageProvider {
 
 		return new Promise((resolve, reject) => {
 			let stream = { ctx: ctx, drained: true, resolve }
-			this.streamReceivers.push(stream)
+			this.streamReceivers[streamId].push(stream)
 			ctx.res.on('drain', () => { stream.drained = true })
 			console.log(`Streaming client connected. ${this.streamReceivers.length} streams now active.`)
 			ctx.res.on('error', err => {
-				console.error(`Error for stream at index ${this.streamReceivers.indexOf(stream)}: ${err.message}`)
-				this.streamReceivers = this.streamReceivers.filter(s => s !== stream)
+				console.error(`Error for client stream at index ${this.streamReceivers[streamId].indexOf(stream)}: ${err.message}`)
+				this.streamReceivers[streamId] = this.streamReceivers[streamId].filter(s => s !== stream)
 				reject(err)
 			})
 			ctx.res.on('close', () => {
-				this.streamReceivers = this.streamReceivers.filter(s => s !== stream)
+				this.streamReceivers[streamId] = this.streamReceivers[streamId].filter(s => s !== stream)
 				console.log(`Client closed. ${this.streamReceivers.length} streams active.`)
 				resolve()
 			})
@@ -284,7 +315,7 @@ export class ImageProvider {
 	}
 	/** Send an image from the stream of mjpegs to the client */
 	async setupClientStreamAndReturnImage (streamId: string, ctx: Koa.ParameterizedContext<Koa.DefaultState, Koa.DefaultContext>) {
-		if (this.streamReceivers.length >= clientLimit) {
+		if (this.streamReceivers[streamId] && this.streamReceivers[streamId].length >= clientLimit) {
 			ctx.status = 429
 			ctx.body = 'Maximum number of streams exceeded.'
 			return
@@ -295,17 +326,17 @@ export class ImageProvider {
 		return new Promise((resolve, reject) => {
 
 			let stream = { ctx: ctx, drained: true, singleImage: true, resolve }
-			this.streamReceivers.push(stream)
+			this.streamReceivers[streamId].push(stream)
 			ctx.res.on('drain', () => { stream.drained = true })
 			console.log(`Image client connected. ${this.streamReceivers.length} streams now active.`)
 
 			ctx.res.on('error', err => {
-				console.error(`Error for stream at index ${this.streamReceivers.indexOf(stream)}: ${err.message}`)
-				this.streamReceivers = this.streamReceivers.filter(s => s !== stream)
+				console.error(`Error for stream at index ${this.streamReceivers[streamId].indexOf(stream)}: ${err.message}`)
+				this.streamReceivers[streamId] = this.streamReceivers[streamId].filter(s => s !== stream)
 				reject(err)
 			})
 			ctx.res.on('close', () => {
-				this.streamReceivers = this.streamReceivers.filter(s => s !== stream)
+				this.streamReceivers[streamId] = this.streamReceivers[streamId].filter(s => s !== stream)
 				resolve()
 			})
 			ctx.type = 'image/jpeg'
@@ -314,8 +345,9 @@ export class ImageProvider {
 		})
 	}
 	/** Receive the stream of mjpegs from CasparCG */
-	feedStream (streamId: string, ctx: Koa.ParameterizedContext<Koa.DefaultState, Koa.DefaultContext>): void {
+	async feedStream (streamId: string, ctx: Koa.ParameterizedContext<Koa.DefaultState, Koa.DefaultContext>) {
 		console.log(`Receiving stream ${streamId} started`)
+		await this.setupStream(streamId)
 		ctx.req.on('data', (d: Buffer) => {
 			// console.log('feedStream data ' + streamId)
 			// console.log(d.length, d.slice(0, 100).toString('utf8'))
@@ -325,31 +357,31 @@ export class ImageProvider {
 				return
 			}
 			if (match) {
-				this.latest = (
-					this.building.length > 12 && this.building[0] === 0xff && this.building[1] === 0xd8 ?
-					Buffer.from(this.building.slice(0, -12)) :
-					this.latest
+				this.streams[streamId].latest = (
+					this.streams[streamId].building.length > 12 && this.streams[streamId].building[0] === 0xff && this.streams[streamId].building[1] === 0xd8 ?
+					Buffer.from(this.streams[streamId].building.slice(0, -12)) :
+					this.streams[streamId].latest
 				)
-				this.frameCounter++
+				this.streams[streamId].frameCounter++
 				Promise.all(
-					this.streamReceivers.map(
+					this.streamReceivers[streamId].map(
 						(streamReceiver, index) => new Promise((resolve: (b: boolean) => void, _reject) => {
 							// console.log('<<<', index, s.drained)
 							if (!streamReceiver.drained) {
-								console.log(`Dropping stream ${index} frame ${this.frameCounter}`)
+								console.log(`Dropping stream ${index} frame ${this.streams[streamId].frameCounter}`)
 								return resolve(streamReceiver.drained)
 							}
 							if (streamReceiver.singleImage) {
 								// Write single image and tie it off
 								streamReceiver.ctx.type = 'image/jpeg'
-								streamReceiver.ctx.body = this.latest
-								this.streamReceivers = this.streamReceivers.filter(s => s !== streamReceiver)
+								streamReceiver.ctx.body = this.streams[streamId].latest
+								this.streamReceivers[streamId] = this.streamReceivers[streamId].filter(s => s !== streamReceiver)
 								if (streamReceiver.resolve) streamReceiver.resolve()
 							} else {
 								streamReceiver.ctx.res.write('--jpgboundary\r\n')
 								streamReceiver.ctx.res.write('Content-type: image/jpeg\r\n')
-								streamReceiver.ctx.res.write(`Content-length: ${this.latest.length}\r\n\r\n`)
-								streamReceiver.drained = streamReceiver.ctx.res.write(this.latest)
+								streamReceiver.ctx.res.write(`Content-length: ${this.streams[streamId].latest.length}\r\n\r\n`)
+								streamReceiver.drained = streamReceiver.ctx.res.write(this.streams[streamId].latest)
 								// console.log('>>>', index, s.drained)
 							}
 							resolve(streamReceiver.drained)
@@ -358,21 +390,21 @@ export class ImageProvider {
 				).catch(console.error)
 
 				if (+match[2] !== 11532) {
-					this.building = d.slice(Buffer.byteLength(match[1], 'utf8'))
+					this.streams[streamId].building = d.slice(Buffer.byteLength(match[1], 'utf8'))
 				} else {
-					this.building = Buffer.alloc(0)
+					this.streams[streamId].building = Buffer.alloc(0)
 				}
 			} else {
 				// console.log('In here', building.slice(-30), d.slice(-30))
-				this.building = Buffer.concat([this.building, d])
+				this.streams[streamId].building = Buffer.concat([this.streams[streamId].building, d])
 			}
 		})
 		ctx.req.on('close', () => {
-			this.latest = Buffer.alloc(0)
-			this.building = Buffer.alloc(0)
-			this.frameCounter = 0
+			this.streams[streamId].latest = Buffer.alloc(0)
+			this.streams[streamId].building = Buffer.alloc(0)
+			this.streams[streamId].frameCounter = 0
 		})
-		ctx.body = `Received frame part ${this.frameCounter}`
+		ctx.body = `Received frame part ${this.streams[streamId].frameCounter}`
 	}
 	private async getRegionRoute (channel: number, layer?: number): Promise<RegionRoute | undefined> {
 		const contentId = this.getcontentId(channel, layer)
@@ -582,7 +614,10 @@ export interface StreamInfoStream {
 	width: number
 	height: number
 }
-export interface CasparStream {
+export interface Stream {
 	created: number
 	lastReceivedTime: number
+	latest: Buffer
+	building: Buffer
+	frameCounter: number
 }

@@ -6,7 +6,7 @@ export interface IConfig {
 	port: number
 
 	/** CasparCG host */
-	casparHost: string
+	casparHost?: string
 	/** CasparCG port */
 	casparPort?: number
 	/** Which channels to use for snapshotting. If omitted, the image-provider will use the last CasparCG-channel. */
@@ -24,6 +24,9 @@ export interface IConfig {
 
 	/** If true, sends clear commands on startup */
 	clearOnStartup?: boolean
+
+	/** Standalone streams served without configuring CasparCG */
+	standaloneStreams?: StandaloneStream[]
 }
 export interface ChannelSetup {
 	/** CasparCG channel number (starting on 1) */
@@ -33,6 +36,10 @@ export interface ChannelSetup {
 
 	width: number
 	height: number
+}
+
+export interface StandaloneStream {
+	id: string
 }
 
 export type DefaultRegion = DefaultRegionRoute | DefaultRegionCustomContent
@@ -56,8 +63,8 @@ export const config: IConfig = {
 	// Default config:
 
 	port: 5255,
-	casparHost: '127.0.0.1',
-	casparPort: 5250,
+	// casparHost: '127.0.0.1',
+	// casparPort: 5250,
 
 	stream: {
 		qmin: 2,
